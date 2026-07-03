@@ -1,0 +1,30 @@
+{% extends "openedx_certifyme/_base.html" %}
+{% block title %}My Certificates - CertifyMe{% endblock %}
+{% block content %}
+<h1>My Certificates</h1>
+{% if rows %}
+<table>
+  <thead>
+    <tr><th>Course</th><th>Status</th><th>Issued</th><th>Actions</th></tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}
+    <tr>
+      <td>{{ row.course_display_name }}</td>
+      <td><span class="status status-{{ row.certificate.status }}">{{ row.certificate.get_status_display }}</span></td>
+      <td>{{ row.certificate.issued_at|default:"—" }}</td>
+      <td>
+        {% if row.certificate.verification_url %}
+        <a class="button" href="{{ row.certificate.verification_url }}" target="_blank" rel="noopener">View Certificate</a>
+        <a class="button" href="{{ row.certificate.verification_url }}" target="_blank" rel="noopener">Download</a>
+        {% endif %}
+        <a class="button" href="{% url 'certifyme:verify-certificate' row.certificate.pk %}">Verify</a>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">No certificates yet. They'll appear here automatically once you complete a course.</p>
+{% endif %}
+{% endblock %}

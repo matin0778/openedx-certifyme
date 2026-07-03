@@ -57,6 +57,10 @@ class CertifyMeValidationError(CertifyMeAPIError):
     """CertifyMe rejected the request payload (400/422). Not retryable."""
 
 
+class CertifyMeNotConfiguredError(CertifyMeAPIError):
+    """No usable CertifyMe configuration (missing API URL/key) exists yet. Not retryable."""
+
+
 #: Exceptions that represent a transient failure worth automatically retrying.
 RETRYABLE_EXCEPTIONS = (CertifyMeConnectionError, CertifyMeServerError, CertifyMeRateLimitError)
 
@@ -77,10 +81,10 @@ class CertifyMeAPIClient:
     PING_ENDPOINT = "api/v1/ping"
 
     def __init__(self, api_url, api_key, organization_id="", timeout=10, max_retries=3):
-        if not api_url:
-            raise ValueError("CertifyMe api_url is required to build an API client.")
-        if not api_key:
-            raise ValueError("CertifyMe api_key is required to build an API client.")
+        if not api_url or not api_key:
+            raise CertifyMeNotConfiguredError(
+                "CertifyMe is not configured yet: both an API URL and API key are required."
+            )
 
         self.api_url = api_url.rstrip("/")
         self.api_key = api_key
