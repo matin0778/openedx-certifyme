@@ -1,0 +1,5 @@
+requests>=2.28
+django-config-models>=2.4
+edx-opaque-keys>=2.5
+celery>=5.2
+openedx-events>=9.0
