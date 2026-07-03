@@ -1,0 +1,65 @@
+{% extends "openedx_certifyme/_base.html" %}
+{% block title %}CertifyMe Instructor Tools - {{ course_display_name }}{% endblock %}
+{% block content %}
+<h1>CertifyMe — {{ course_display_name }}</h1>
+
+<form method="get">
+  <input type="text" name="q" placeholder="Search by username or email" value="{{ query }}">
+  <select name="status">
+    <option value="">All statuses</option>
+    {% for value, label in status_choices %}
+    <option value="{{ value }}" {% if status_filter == value %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+  <button type="submit">Filter</button>
+</form>
+
+<form method="post" action="{% url 'certifyme:instructor-issue' course_id %}">
+  {% csrf_token %}
+  <input type="text" name="user_identifier" placeholder="username or email" required>
+  <button type="submit">Issue Certificate</button>
+</form>
+
+<form method="post" action="{% url 'certifyme:instructor-bulk-issue' course_id %}">
+  {% csrf_token %}
+  <button type="submit">Bulk Issue for All Passing Learners</button>
+</form>
+
+<form method="post" action="{% url 'certifyme:instructor-retry-failed' course_id %}">
+  {% csrf_token %}
+  <button type="submit">Retry All Failed</button>
+</form>
+
+<table>
+  <thead>
+    <tr>
+      <th>Learner</th><th>Status</th><th>Certificate ID</th><th>Retries</th><th>Failure Reason</th><th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for certificate in certificates %}
+    <tr>
+      <td>{{ certificate.user.username }} ({{ certificate.user.email }})</td>
+      <td><span class="status status-{{ certificate.status }}">{{ certificate.get_status_display }}</span></td>
+      <td>{{ certificate.certificate_id|default:"—" }}</td>
+      <td>{{ certificate.retry_count }}</td>
+      <td>{{ certificate.failure_reason|default:"—" }}</td>
+      <td>
+        <form method="post" action="{% url 'certifyme:instructor-retry' course_id certificate.pk %}" style="display:inline;">
+          {% csrf_token %}<button type="submit">Retry</button>
+        </form>
+        <form method="post" action="{% url 'certifyme:instructor-revoke' course_id certificate.pk %}" style="display:inline;">
+          {% csrf_token %}<button type="submit">Revoke</button>
+        </form>
+        <form method="post" action="{% url 'certifyme:instructor-resend' course_id certificate.pk %}" style="display:inline;">
+          {% csrf_token %}<button type="submit">Resend Email</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% if not certificates %}
+<p class="empty">No certificates match the current filters.</p>
+{% endif %}
+{% endblock %}

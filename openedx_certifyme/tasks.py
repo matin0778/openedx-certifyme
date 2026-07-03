@@ -157,6 +157,54 @@ def issue_badge_task(self, user_id, course_id_str, recipient_email, recipient_na
     logger.info("Issued CertifyMe badge for user_id=%s course_id=%s", user_id, course_key)
 
 
+@shared_task(bind=True, ignore_result=True)
+def bulk_issue_certificates_task(self, course_id_str):  # pylint: disable=unused-argument
+    """
+    Fans out to :func:`issue_certificate_task` for every actively
+    enrolled, passing learner in the course who doesn't already have an
+    issued certificate.
+
+    Grade computation (``CourseGradeFactory``) happens here, in the
+    background, rather than in the instructor's request — bulk-issuing
+    for a large cohort can take a while and must never tie up a web
+    worker. ``CourseEnrollment`` and ``CourseGradeFactory`` are
+    edx-platform internals, imported locally since this task only ever
+    runs inside edx-platform.
+    """
+    from common.djangoapps.student.models import CourseEnrollment
+    from lms.djangoapps.grades.course_grade_factory import CourseGradeFactory
+
+    course_key = CourseKey.from_string(course_id_str)
+
+    already_issued_user_ids = set(
+        CertifyMeCertificate.objects.filter(
+            course_id=course_key, status=CertifyMeCertificate.Status.ISSUED
+        ).values_list("user_id", flat=True)
+    )
+
+    queued = 0
+    enrollments = CourseEnrollment.objects.filter(course_id=course_key, is_active=True).select_related("user")
+    for enrollment in enrollments:
+        user = enrollment.user
+        if user.id in already_issued_user_ids:
+            continue
+
+        grade = CourseGradeFactory().read(user, course_key=course_key)
+        if not grade or not grade.passed:
+            continue
+
+        issue_certificate_task.delay(
+            user_id=user.id,
+            course_id_str=course_id_str,
+            recipient_email=user.email,
+            recipient_name=user.get_full_name() or user.username,
+            course_name=str(course_key),
+        )
+        queued += 1
+
+    logger.info("Bulk issuance for course_id=%s queued %d certificate(s)", course_key, queued)
+
+
 @shared_task(**_RETRY_KWARGS)
 def revoke_certificate_task(self, certificate_pk, reason=None):  # pylint: disable=unused-argument
     """Revokes a previously issued certificate on CertifyMe and marks it revoked locally."""
