@@ -79,10 +79,12 @@ class CertifyMeCertificateAdmin(admin.ModelAdmin):
     """
     Read-heavy admin for auditing certificate issuance: every attempt,
     its status, retry count, and the raw CertifyMe response for
-    debugging. Retry/revoke/resend actions are added in
-    ``openedx_certifyme.admin`` once the Celery task queue (Phase
-    7/10/11) exists to back them without blocking the request.
+    debugging. The one mutating action, "Retry", re-enqueues the same
+    Celery task the automatic pipeline and the instructor tools page
+    use, so a stuck FAILED row can be nudged without leaving the admin.
     """
+
+    actions = ["retry_selected"]
 
     list_display = (
         "user",
@@ -121,3 +123,23 @@ class CertifyMeCertificateAdmin(admin.ModelAdmin):
         # Certificate records are only ever created by the issuance
         # pipeline (signal -> Celery task), never hand-typed in admin.
         return False
+
+    def retry_selected(self, request, queryset):
+        from openedx_certifyme.tasks import issue_certificate_task
+        from openedx_certifyme.views._utils import get_course_display_name
+
+        queued = 0
+        for certificate in queryset.select_related("user"):
+            issue_certificate_task.delay(
+                user_id=certificate.user_id,
+                course_id_str=str(certificate.course_id),
+                recipient_email=certificate.user.email,
+                recipient_name=certificate.user.get_full_name() or certificate.user.username,
+                course_name=get_course_display_name(certificate.course_id),
+            )
+            queued += 1
+
+        logger.info("Admin user_id=%s queued retry for %d certificate(s)", request.user.id, queued)
+        self.message_user(request, f"Queued {queued} certificate(s) for retry.", level=messages.SUCCESS)
+
+    retry_selected.short_description = "Retry issuance for selected certificates"
