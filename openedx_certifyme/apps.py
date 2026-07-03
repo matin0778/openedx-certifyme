@@ -50,6 +50,8 @@ class CertifyMeConfig(AppConfig):
     }
 
     def ready(self):
+        from openedx_certifyme import signals  # noqa: F401  pylint: disable=unused-import
+
         logger.info(
             "CertifyMe plugin loaded (app=%s, verbose_name=%s).",
             self.name,
