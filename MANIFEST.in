@@ -1,2 +1,4 @@
+include README.md
+include LICENSE
 recursive-include openedx_certifyme/templates *
 recursive-include openedx_certifyme/static *

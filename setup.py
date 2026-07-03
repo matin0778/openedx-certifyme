@@ -23,7 +23,16 @@ setup(
     ).read(),
     long_description_content_type="text/markdown",
     author="CertifyMe",
-    license="AGPL-3.0",
+    license="Apache-2.0",
+    python_requires=">=3.8",
+    classifiers=[
+        "Development Status :: 4 - Beta",
+        "Framework :: Django",
+        "Intended Audience :: Developers",
+        "License :: OSI Approved :: Apache Software License",
+        "Programming Language :: Python :: 3",
+        "Topic :: Education",
+    ],
     packages=find_packages(
         include=["openedx_certifyme", "openedx_certifyme.*"],
     ),
