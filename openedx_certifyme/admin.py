@@ -4,7 +4,7 @@ from config_models.admin import ConfigurationModelAdmin
 from django.contrib import admin, messages
 
 from openedx_certifyme.api import CertifyMeAPIError, get_api_client
-from openedx_certifyme.models import CertifyMeConfiguration
+from openedx_certifyme.models import CertifyMeCertificate, CertifyMeConfiguration
 
 logger = logging.getLogger(__name__)
 
@@ -72,3 +72,52 @@ class CertifyMeConfigurationAdmin(ConfigurationModelAdmin):
             )
 
     test_connection.short_description = "Test connection to CertifyMe"
+
+
+@admin.register(CertifyMeCertificate)
+class CertifyMeCertificateAdmin(admin.ModelAdmin):
+    """
+    Read-heavy admin for auditing certificate issuance: every attempt,
+    its status, retry count, and the raw CertifyMe response for
+    debugging. Retry/revoke/resend actions are added in
+    ``openedx_certifyme.admin`` once the Celery task queue (Phase
+    7/10/11) exists to back them without blocking the request.
+    """
+
+    list_display = (
+        "user",
+        "course_id",
+        "status",
+        "certificate_id",
+        "retry_count",
+        "issued_at",
+        "created",
+        "modified",
+    )
+    list_filter = ("status", "created")
+    search_fields = (
+        "user__username",
+        "user__email",
+        "course_id",
+        "certificate_id",
+    )
+    readonly_fields = (
+        "user",
+        "course_id",
+        "certificate_id",
+        "verification_url",
+        "issued_at",
+        "badge_issued_at",
+        "badge_response_json",
+        "response_json",
+        "retry_count",
+        "failure_reason",
+        "created",
+        "modified",
+    )
+    ordering = ("-created",)
+
+    def has_add_permission(self, request):
+        # Certificate records are only ever created by the issuance
+        # pipeline (signal -> Celery task), never hand-typed in admin.
+        return False

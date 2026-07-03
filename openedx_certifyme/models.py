@@ -12,7 +12,9 @@ settings table + caching layer.
 """
 
 from config_models.models import ConfigurationModel
+from django.conf import settings
 from django.db import models
+from opaque_keys.edx.django.models import CourseKeyField
 
 
 class CertifyMeConfiguration(ConfigurationModel):
@@ -69,3 +71,53 @@ class CertifyMeConfiguration(ConfigurationModel):
 
     def __str__(self):
         return f"CertifyMeConfiguration(enabled={self.enabled}, api_url={self.api_url!r})"
+
+
+class CertifyMeCertificate(models.Model):
+    """
+    Tracks the CertifyMe certificate issued (or attempted) for a single
+    (user, course) pair. This is the local system of record that lets us
+    render "My Certificates" / instructor tooling without round-tripping
+    to CertifyMe on every page view, and gives the retry system
+    somewhere to persist failure state between attempts.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        ISSUED = "issued", "Issued"
+        FAILED = "failed", "Failed"
+        REVOKED = "revoked", "Revoked"
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="certifyme_certificates",
+    )
+    course_id = CourseKeyField(max_length=255, db_index=True, case_sensitive=True)
+
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+
+    certificate_id = models.CharField(max_length=255, blank=True, null=True, db_index=True)
+    verification_url = models.URLField(max_length=255, blank=True, null=True)
+    issued_at = models.DateTimeField(blank=True, null=True)
+
+    badge_issued_at = models.DateTimeField(blank=True, null=True)
+    badge_response_json = models.JSONField(blank=True, default=dict)
+
+    response_json = models.JSONField(blank=True, default=dict)
+    retry_count = models.PositiveIntegerField(default=0)
+    failure_reason = models.TextField(blank=True, null=True)
+
+    created = models.DateTimeField(auto_now_add=True)
+    modified = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        app_label = "openedx_certifyme"
+        verbose_name = "CertifyMe Certificate"
+        constraints = [
+            models.UniqueConstraint(fields=["user", "course_id"], name="unique_certifyme_certificate_per_user_course")
+        ]
+        ordering = ["-created"]
+
+    def __str__(self):
+        return f"{self.user} / {self.course_id} ({self.status})"
