@@ -13,7 +13,9 @@ def health(request):
     Liveness probe confirming the plugin is installed, discovered by the
     Open edX plugin architecture, and its urlconf is mounted.
     """
-    logger.info("CertifyMe health check requested.")
+    # DEBUG, not INFO: liveness probes hit this every few seconds in
+    # production and would otherwise flood the log at normal verbosity.
+    logger.debug("CertifyMe health check requested.")
     return JsonResponse(
         {
             "plugin": "openedx-certifyme",

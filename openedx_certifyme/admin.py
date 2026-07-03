@@ -63,10 +63,10 @@ class CertifyMeConfigurationAdmin(ConfigurationModelAdmin):
             client = get_api_client(config=config)
             result = client.test_connection()
         except CertifyMeAPIError as exc:
-            logger.warning("CertifyMe test_connection failed from admin: %s", exc)
+            logger.warning("Admin user_id=%s CertifyMe test_connection failed: %s", request.user.id, exc)
             self.message_user(request, f"Connection failed: {exc}", level=messages.ERROR)
         else:
-            logger.info("CertifyMe test_connection succeeded from admin.")
+            logger.info("Admin user_id=%s CertifyMe test_connection succeeded.", request.user.id)
             self.message_user(
                 request, f"Connection succeeded: {result['response']}", level=messages.SUCCESS
             )
