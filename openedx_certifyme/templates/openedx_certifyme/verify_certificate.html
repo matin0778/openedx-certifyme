@@ -7,13 +7,6 @@
 <p><strong>Status:</strong> <span class="status status-{{ certificate.status }}">{{ certificate.get_status_display }}</span></p>
 {% if certificate.issued_at %}<p><strong>Issued:</strong> {{ certificate.issued_at }}</p>{% endif %}
 {% if certificate.certificate_id %}<p><strong>Certificate ID:</strong> {{ certificate.certificate_id }}</p>{% endif %}
-
-{% if live_error %}
-<p class="empty">Could not confirm live status with CertifyMe right now ({{ live_error }}); showing last known status above.</p>
-{% elif live_response %}
-<p>Live status confirmed directly with CertifyMe.</p>
-{% endif %}
-
 {% if certificate.verification_url %}
 <p><a class="button" href="{{ certificate.verification_url }}" target="_blank" rel="noopener">Open on CertifyMe</a></p>
 {% endif %}

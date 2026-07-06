@@ -48,12 +48,6 @@
         <form method="post" action="{% url 'certifyme:instructor-retry' course_id certificate.pk %}" style="display:inline;">
           {% csrf_token %}<button type="submit">Retry</button>
         </form>
-        <form method="post" action="{% url 'certifyme:instructor-revoke' course_id certificate.pk %}" style="display:inline;">
-          {% csrf_token %}<button type="submit">Revoke</button>
-        </form>
-        <form method="post" action="{% url 'certifyme:instructor-resend' course_id certificate.pk %}" style="display:inline;">
-          {% csrf_token %}<button type="submit">Resend Email</button>
-        </form>
       </td>
     </tr>
     {% endfor %}

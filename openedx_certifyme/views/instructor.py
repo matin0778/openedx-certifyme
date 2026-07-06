@@ -6,10 +6,13 @@ Like the learner-facing pages, this is a standalone page under
 the legacy instructor dashboard, which has no supported third-party
 extension point without patching edx-platform core templates.
 
-Every mutating action (issue/bulk-issue/retry/revoke/resend) enqueues a
-Celery task and redirects immediately — nothing here calls the
-CertifyMe API inline, so an instructor bulk-issuing certificates for a
-large cohort never ties up a web worker.
+Every mutating action (issue/bulk-issue/retry) enqueues a Celery task
+and redirects immediately — nothing here calls the CertifyMe API
+inline, so an instructor bulk-issuing certificates for a large cohort
+never ties up a web worker.
+
+There is no revoke/resend action: CertifyMe's API has no confirmed
+endpoint for either (see ``api.py``'s module docstring).
 """
 
 import logging
@@ -188,37 +191,4 @@ def retry_failed_certificates(request, course_id):
         len(failed),
         course_key,
     )
-    return redirect(reverse("certifyme:instructor-course-certificates", args=[course_id]))
-
-
-@login_required
-def revoke_certificate(request, course_id, pk):
-    """Revokes a previously issued certificate."""
-    course_key = _parse_course_key(course_id)
-    _require_course_staff(request, course_key)
-    certificate = get_object_or_404(CertifyMeCertificate, pk=pk, course_id=course_key)
-    if request.method != "POST":
-        raise Http404()
-
-    from openedx_certifyme.tasks import revoke_certificate_task
-
-    reason = request.POST.get("reason", "")
-    revoke_certificate_task.delay(certificate_pk=certificate.pk, reason=reason)
-    logger.info("Instructor user_id=%s queued revoke for certificate pk=%s", request.user.id, pk)
-    return redirect(reverse("certifyme:instructor-course-certificates", args=[course_id]))
-
-
-@login_required
-def resend_certificate_email(request, course_id, pk):
-    """Asks CertifyMe to resend the certificate delivery email."""
-    course_key = _parse_course_key(course_id)
-    _require_course_staff(request, course_key)
-    certificate = get_object_or_404(CertifyMeCertificate, pk=pk, course_id=course_key)
-    if request.method != "POST":
-        raise Http404()
-
-    from openedx_certifyme.tasks import resend_certificate_email_task
-
-    resend_certificate_email_task.delay(certificate_pk=certificate.pk)
-    logger.info("Instructor user_id=%s queued resend email for certificate pk=%s", request.user.id, pk)
     return redirect(reverse("certifyme:instructor-course-certificates", args=[course_id]))

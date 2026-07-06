@@ -5,10 +5,8 @@ from openedx_certifyme.views.instructor import (
     bulk_issue_certificates,
     course_certificates,
     issue_certificate_for_user,
-    resend_certificate_email,
     retry_certificate,
     retry_failed_certificates,
-    revoke_certificate,
 )
 from openedx_certifyme.views.student import my_certificates, verify_certificate
 
@@ -27,15 +25,5 @@ urlpatterns = [
         "instructor/<str:course_id>/certificates/<int:pk>/retry/",
         retry_certificate,
         name="instructor-retry",
-    ),
-    path(
-        "instructor/<str:course_id>/certificates/<int:pk>/revoke/",
-        revoke_certificate,
-        name="instructor-revoke",
-    ),
-    path(
-        "instructor/<str:course_id>/certificates/<int:pk>/resend/",
-        resend_certificate_email,
-        name="instructor-resend",
     ),
 ]

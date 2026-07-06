@@ -6,13 +6,29 @@ HTTP — everything else (signals, tasks, views, admin) goes through
 :func:`get_api_client` / :class:`CertifyMeAPIClient`.
 
 .. important::
-   CertifyMe's exact API contract was not provided to this project, so
-   the endpoint paths and JSON payload shapes below follow common REST
-   conventions (Bearer auth, ``/api/v1/...`` resource paths, a flat
-   JSON body per call). They are centralized as class constants
-   (``CERTIFICATES_ENDPOINT``, ``BADGES_ENDPOINT``, ``PING_ENDPOINT``)
-   and small ``_build_*_payload`` helpers specifically so they are a
-   one-place edit once you have CertifyMe's real OpenAPI reference.
+   The endpoint, auth scheme, and payload/response shape below are
+   confirmed against a real, successful live call (not a guess):
+
+   - The working endpoint is the regional one (e.g.
+     ``POST https://apac.platform.certifyme.dev/api/v2/credential``),
+     matching CertifyMe's own Moodle plugin (``local_certifyme``) — the
+     generic ``https://my.certifyme.online/api/v2/credential`` shown in
+     CertifyMe's public API reference consistently 500'd in testing.
+   - Auth is the raw API token in the ``Authorization`` header, with no
+     ``Bearer`` prefix.
+   - ``template_ID`` must be sent as a JSON number, not a string — a
+     string value against the working regional endpoint was not
+     separately isolated, but the one confirmed-successful request used
+     a bare integer, matching CertifyMe's own internal Postman example.
+   - The response body **does** carry a stable id and verification URL
+     — confirmed via a real successful call, returning (among other
+     fields) ``credential_UID`` and ``credential_url``. CertifyMe's own
+     Moodle plugin never reads these (it only checks HTTP status), but
+     they're real and this client captures them.
+   - No separate badge-issuance endpoint is known to exist. CertifyMe's
+     public API reference does list ``GET``/``PUT``/``DELETE`` by
+     credential id — not yet implemented here, only single-credential
+     issuance.
 """
 
 import logging
@@ -20,6 +36,8 @@ import logging
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+
+from openedx_certifyme import servers
 
 logger = logging.getLogger(__name__)
 
@@ -46,11 +64,11 @@ class CertifyMeRateLimitError(CertifyMeServerError):
 
 
 class CertifyMeAuthenticationError(CertifyMeAPIError):
-    """CertifyMe rejected the configured API key (401/403). Not retryable."""
+    """CertifyMe rejected the configured API token (401/403). Not retryable."""
 
 
 class CertifyMeNotFoundError(CertifyMeAPIError):
-    """The requested certificate/badge does not exist on CertifyMe (404). Not retryable."""
+    """CertifyMe returned 404 — e.g. the configured template ID doesn't exist on this server. Not retryable."""
 
 
 class CertifyMeValidationError(CertifyMeAPIError):
@@ -58,7 +76,7 @@ class CertifyMeValidationError(CertifyMeAPIError):
 
 
 class CertifyMeNotConfiguredError(CertifyMeAPIError):
-    """No usable CertifyMe configuration (missing API URL/key) exists yet. Not retryable."""
+    """No usable CertifyMe configuration (missing API token) exists yet. Not retryable."""
 
 
 #: Exceptions that represent a transient failure worth automatically retrying.
@@ -67,7 +85,7 @@ RETRYABLE_EXCEPTIONS = (CertifyMeConnectionError, CertifyMeServerError, CertifyM
 
 class CertifyMeAPIClient:
     """
-    Thin, retrying HTTP client for the CertifyMe REST API.
+    Thin, retrying HTTP client for CertifyMe's credential-issuance API.
 
     Handles authentication, timeouts, connection-level retries with
     backoff, response-status mapping to typed exceptions, and logging.
@@ -76,19 +94,13 @@ class CertifyMeAPIClient:
     at the HTTP transport layer (e.g. a dropped connection).
     """
 
-    CERTIFICATES_ENDPOINT = "api/v1/certificates"
-    BADGES_ENDPOINT = "api/v1/badges"
-    PING_ENDPOINT = "api/v1/ping"
-
-    def __init__(self, api_url, api_key, organization_id="", timeout=10, max_retries=3):
-        if not api_url or not api_key:
+    def __init__(self, server, api_token, timeout=10, max_retries=3):
+        if not api_token:
             raise CertifyMeNotConfiguredError(
-                "CertifyMe is not configured yet: both an API URL and API key are required."
+                "CertifyMe is not configured yet: an API token is required."
             )
 
-        self.api_url = api_url.rstrip("/")
-        self.api_key = api_key
-        self.organization_id = organization_id
+        self.url = servers.endpoint(server)
         self.timeout = timeout
 
         self.session = requests.Session()
@@ -96,7 +108,7 @@ class CertifyMeAPIClient:
             total=max_retries,
             backoff_factor=1,
             status_forcelist=(429, 500, 502, 503, 504),
-            allowed_methods=frozenset(["GET", "POST", "PATCH", "DELETE"]),
+            allowed_methods=frozenset(["GET", "POST"]),
             raise_on_status=False,
         )
         adapter = HTTPAdapter(max_retries=retry)
@@ -104,16 +116,13 @@ class CertifyMeAPIClient:
         self.session.mount("http://", adapter)
         self.session.headers.update(
             {
-                "Authorization": f"Bearer {self.api_key}",
+                "Authorization": api_token,
                 "Accept": "application/json",
                 "Content-Type": "application/json",
             }
         )
 
     # -- internals ---------------------------------------------------
-
-    def _url(self, path):
-        return f"{self.api_url}/{path.lstrip('/')}"
 
     @staticmethod
     def _safe_body(response):
@@ -122,32 +131,33 @@ class CertifyMeAPIClient:
         except ValueError:
             return {"raw": response.text}
 
-    def _request(self, method, path, **kwargs):
-        url = self._url(path)
-        logger.info("CertifyMe API request starting: %s %s", method, url)
+    def _request(self, method, **kwargs):
+        logger.info("CertifyMe API request starting: %s %s", method, self.url)
         try:
-            response = self.session.request(method, url, timeout=self.timeout, **kwargs)
+            response = self.session.request(method, self.url, timeout=self.timeout, **kwargs)
         except requests.exceptions.RequestException as exc:
-            logger.warning("CertifyMe API connection error: %s %s -> %s", method, url, exc)
+            logger.warning("CertifyMe API connection error: %s %s -> %s", method, self.url, exc)
             raise CertifyMeConnectionError(f"Could not reach CertifyMe API: {exc}") from exc
 
         logger.info(
             "CertifyMe API request finished: %s %s -> HTTP %s",
             method,
-            url,
+            self.url,
             response.status_code,
         )
         body = self._safe_body(response)
 
         if response.status_code in (401, 403):
             raise CertifyMeAuthenticationError(
-                "CertifyMe API rejected the configured API key.",
+                "CertifyMe API rejected the configured API token.",
                 status_code=response.status_code,
                 response_body=body,
             )
         if response.status_code == 404:
             raise CertifyMeNotFoundError(
-                "CertifyMe resource not found.", status_code=response.status_code, response_body=body
+                "CertifyMe returned 404 — check the configured template ID exists on this server.",
+                status_code=response.status_code,
+                response_body=body,
             )
         if response.status_code == 429:
             raise CertifyMeRateLimitError(
@@ -174,61 +184,45 @@ class CertifyMeAPIClient:
 
     # -- public API ---------------------------------------------------
 
-    def test_connection(self):
-        """
-        Round-trips a lightweight request to confirm the configured URL
-        and API key are valid. Raises ``CertifyMeAPIError`` (or a
-        subclass) on failure.
-        """
-        body = self._request("GET", self.PING_ENDPOINT)
-        return {"success": True, "response": body}
-
-    def issue_certificate(
+    def issue_credential(
         self,
         *,
-        recipient_email,
-        recipient_name,
-        course_name,
-        course_id,
-        completion_date,
-        template_id=None,
+        name,
+        email,
+        template_id,
+        text="",
+        verify_mode="None",
+        verify_code=None,
+        license_number=None,
+        custom_fields=None,
     ):
         """
-        Issues a certificate. ``completion_date`` must be an ISO-8601
-        string. Returns the raw CertifyMe response (expected to include
-        a certificate id and verification URL).
+        Issues a CertifyMe credential. Returns the raw CertifyMe response
+        body, confirmed (via a real successful call) to include at least
+        ``credential_UID`` (stable credential id) and ``credential_url`` /
+        ``credential_customURL`` (public verification link), alongside
+        echoed-back fields like ``credential_name``/``credential_email``.
         """
+        try:
+            template_id = int(template_id)
+        except (TypeError, ValueError):
+            pass
+
         payload = {
-            "organization_id": self.organization_id,
-            "template_id": template_id or "",
-            "recipient": {"email": recipient_email, "name": recipient_name},
-            "course": {"id": str(course_id), "name": course_name},
-            "completion_date": completion_date,
+            "name": name,
+            "email": email,
+            "template_ID": template_id,
+            "text": text or "",
+            "verify_mode": verify_mode or "None",
         }
-        return self._request("POST", f"{self.CERTIFICATES_ENDPOINT}/issue", json=payload)
+        if verify_code:
+            payload["verify_code"] = verify_code
+        if license_number:
+            payload["license_number"] = license_number
+        if custom_fields:
+            payload.update(custom_fields)
 
-    def issue_badge(self, *, recipient_email, recipient_name, course_name, course_id, template_id=None):
-        """Issues a badge. Returns the raw CertifyMe response."""
-        payload = {
-            "organization_id": self.organization_id,
-            "template_id": template_id or "",
-            "recipient": {"email": recipient_email, "name": recipient_name},
-            "course": {"id": str(course_id), "name": course_name},
-        }
-        return self._request("POST", f"{self.BADGES_ENDPOINT}/issue", json=payload)
-
-    def revoke_certificate(self, certificate_id, reason=None):
-        """Revokes a previously issued certificate."""
-        payload = {"reason": reason or ""}
-        return self._request("POST", f"{self.CERTIFICATES_ENDPOINT}/{certificate_id}/revoke", json=payload)
-
-    def resend_email(self, certificate_id):
-        """Asks CertifyMe to resend the certificate delivery email."""
-        return self._request("POST", f"{self.CERTIFICATES_ENDPOINT}/{certificate_id}/resend")
-
-    def get_certificate(self, certificate_id):
-        """Fetches the current state of a certificate from CertifyMe."""
-        return self._request("GET", f"{self.CERTIFICATES_ENDPOINT}/{certificate_id}")
+        return self._request("POST", json=payload)
 
 
 def get_api_client(config=None):
@@ -244,9 +238,8 @@ def get_api_client(config=None):
 
     config = config or CertifyMeConfiguration.current()
     return CertifyMeAPIClient(
-        api_url=config.api_url,
-        api_key=config.api_key,
-        organization_id=config.organization_id,
+        server=config.server,
+        api_token=config.api_token,
         timeout=config.api_timeout_seconds,
         max_retries=config.api_max_retries,
     )

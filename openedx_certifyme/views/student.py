@@ -14,7 +14,6 @@ import logging
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import get_object_or_404, render
 
-from openedx_certifyme.api import CertifyMeAPIError, get_api_client
 from openedx_certifyme.models import CertifyMeCertificate
 from openedx_certifyme.views._utils import get_course_display_name
 
@@ -39,22 +38,12 @@ def verify_certificate(request, pk):
 
     Deliberately unauthenticated: a certificate's purpose is to be
     verifiable by a third party (e.g. an employer) who has the link but
-    no platform account. Re-checks live status against CertifyMe so a
-    subsequent revocation is reflected even if the local cache is stale.
+    no platform account. This only confirms our own local issuance
+    record — CertifyMe's API has no confirmed status-check endpoint to
+    round-trip against (see ``api.py``'s module docstring), so there is
+    no live check here.
     """
     certificate = get_object_or_404(CertifyMeCertificate, pk=pk)
-
-    live_response = None
-    live_error = None
-    if certificate.certificate_id:
-        try:
-            client = get_api_client()
-            live_response = client.get_certificate(certificate.certificate_id)
-        except CertifyMeAPIError as exc:
-            logger.warning(
-                "Could not fetch live status for certificate_id=%s: %s", certificate.certificate_id, exc
-            )
-            live_error = str(exc)
 
     return render(
         request,
@@ -62,7 +51,5 @@ def verify_certificate(request, pk):
         {
             "certificate": certificate,
             "course_display_name": get_course_display_name(certificate.course_id),
-            "live_response": live_response,
-            "live_error": live_error,
         },
     )

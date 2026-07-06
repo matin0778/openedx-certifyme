@@ -16,7 +16,6 @@
       <td>
         {% if row.certificate.verification_url %}
         <a class="button" href="{{ row.certificate.verification_url }}" target="_blank" rel="noopener">View Certificate</a>
-        <a class="button" href="{{ row.certificate.verification_url }}" target="_blank" rel="noopener">Download</a>
         {% endif %}
         <a class="button" href="{% url 'certifyme:verify-certificate' row.certificate.pk %}">Verify</a>
       </td>
